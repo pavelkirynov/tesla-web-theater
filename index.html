@@ -603,13 +603,29 @@ function handlePlay() {
   }
 }
 
-// ─── YouTube via Piped/Invidious (canvas mode) or embed (direct mode) ───
+// ─── YouTube via Cobalt / Piped / Invidious (canvas mode) or embed (direct mode) ───
+
+// 🔧 Self-hosted backend (recommended). Public Piped/Invidious instances are
+// mostly dead in 2026. Deploy worker.js (in this repo) on Cloudflare Workers
+// — it's ~50 lines, free tier, instant — and paste the URL below.
+// Expected to accept ?id=VIDEOID and return {kind:'mp4'|'hls', url:'...'}.
+const CUSTOM_BACKEND = null; // e.g. 'https://yt-proxy.youraccount.workers.dev/'
+
+// Community Cobalt instances (POST /api/json). They actually mux streams
+// through a real yt-dlp pipeline server-side, so they hold up much better
+// than Piped/Invidious.
+const COBALT_HOSTS = [
+  'co.eepy.today',
+  'capi.oct.world',
+  'cobalt.synzr.ru',
+  'api.cobalt.tools',
+];
+
 const PIPED_HOSTS = [
   'pipedapi.kavin.rocks',
   'pipedapi.adminforge.de',
   'api.piped.privacydev.net',
   'api.piped.yt',
-  'api.piped.projectsegfau.lt',
   'pipedapi-libre.kavin.rocks',
 ];
 const INVIDIOUS_HOSTS = [
@@ -619,7 +635,6 @@ const INVIDIOUS_HOSTS = [
   'y.com.sb',
   'yewtu.be',
   'invidious.f5.si',
-  'invidious.materialio.us',
 ];
 
 // ─── Console logger (prefixed + JSON-serialised for copy-paste) ───
@@ -653,17 +668,40 @@ const CORS_PROXIES = [
   u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
 ];
 
-async function fetchJsonAny(targetUrl, ms = 5000) {
+// Read body once and try to parse as JSON. If body is HTML / shutdown
+// notice / empty, return null instead of throwing.
+async function readJsonOrNull(res, label, url) {
+  let txt;
+  try { txt = await res.text(); }
+  catch (e) {
+    ttwarn(`${label} body read failed`, { url, name: e.name, msg: e.message });
+    return null;
+  }
+  const t = txt.trim();
+  if (!t) { ttwarn(`${label} empty body`, { url }); return null; }
+  if (t[0] !== '{' && t[0] !== '[') {
+    ttwarn(`${label} non-JSON body`, { url, head: t.slice(0, 60) });
+    return null;
+  }
+  try { return JSON.parse(t); }
+  catch (e) {
+    ttwarn(`${label} JSON parse fail`, { url, msg: e.message });
+    return null;
+  }
+}
+
+async function fetchJsonAny(targetUrl, ms = 3000) {
   // 1) direct
   try {
     const t0 = Date.now();
     const res = await fetchWithTimeout(targetUrl, ms);
     const dt = Date.now() - t0;
     if (res.ok) {
-      ttlog(`fetchJson[direct] ok ${dt}ms`, { url: targetUrl });
-      return await res.json();
+      const data = await readJsonOrNull(res, 'fetchJson[direct]', targetUrl);
+      if (data) { ttlog(`fetchJson[direct] ok ${dt}ms`, { url: targetUrl }); return data; }
+    } else {
+      ttwarn(`fetchJson[direct] HTTP ${res.status} ${dt}ms`, { url: targetUrl });
     }
-    ttwarn(`fetchJson[direct] HTTP ${res.status} ${dt}ms`, { url: targetUrl });
   } catch (e) {
     ttwarn(`fetchJson[direct] threw`, { url: targetUrl, name: e.name, msg: e.message });
   }
@@ -675,10 +713,14 @@ async function fetchJsonAny(targetUrl, ms = 5000) {
       const res = await fetchWithTimeout(proxied, ms);
       const dt = Date.now() - t0;
       if (res.ok) {
-        ttlog(`fetchJson[proxy${i}] ok ${dt}ms`, { url: targetUrl, via: tryHost(proxied) });
-        return await res.json();
+        const data = await readJsonOrNull(res, `fetchJson[proxy${i}]`, targetUrl);
+        if (data) {
+          ttlog(`fetchJson[proxy${i}] ok ${dt}ms`, { url: targetUrl, via: tryHost(proxied) });
+          return data;
+        }
+      } else {
+        ttwarn(`fetchJson[proxy${i}] HTTP ${res.status} ${dt}ms`, { url: targetUrl });
       }
-      ttwarn(`fetchJson[proxy${i}] HTTP ${res.status} ${dt}ms`, { url: targetUrl });
     } catch (e) {
       ttwarn(`fetchJson[proxy${i}] threw`, { url: targetUrl, name: e.name, msg: e.message });
     }
@@ -700,8 +742,75 @@ async function loadYouTube(videoId, originalUrl) {
     return;
   }
 
-  // Strategy 1: Piped JSON API (direct or via CORS proxy)
-  ttlog('strategy 1: piped API', { hosts: PIPED_HOSTS });
+  // Strategy 0: self-hosted backend (worker.js on Cloudflare). Fastest,
+  // most reliable path — runs server-side so no CORS issues.
+  if (CUSTOM_BACKEND) {
+    setMode('canvas', `backend → ${tryHost(CUSTOM_BACKEND)}`);
+    const url = CUSTOM_BACKEND.replace(/\/$/, '') + `?id=${encodeURIComponent(videoId)}`;
+    const data = await fetchJsonAny(url, 8000);
+    if (data && data.url) {
+      ttlog(`backend response`, { kind: data.kind, urlHost: tryHost(data.url),
+        title: data.title, itag: data.itag });
+      if (await tryLoadVideo(data.url)) {
+        addHistory(originalUrl);
+        setLoading(false);
+        setMode('canvas', `backend · ${data.kind || 'mp4'}`);
+        ttlog(`SUCCESS via custom backend`);
+        startCanvas();
+        safePlay();
+        return;
+      }
+      ttwarn(`backend stream rejected by <video>`);
+    }
+  }
+
+  // Strategy 1: Cobalt community instances (POST /api/json). They mux
+  // a fresh URL server-side with a real yt-dlp pipeline, much more
+  // resilient than Piped/Invidious.
+  ttlog('strategy 1: cobalt', { hosts: COBALT_HOSTS });
+  for (const host of COBALT_HOSTS) {
+    setMode('canvas', `cobalt → ${host}`);
+    const t0 = Date.now();
+    try {
+      const res = await fetchWithTimeout(`https://${host}/api/json`, 8000, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: `https://www.youtube.com/watch?v=${videoId}`,
+          vQuality: '720', videoQuality: '720',
+          isAudioOnly: false, audioFormat: 'mp3', filenamePattern: 'basic',
+        }),
+      });
+      const ms = Date.now() - t0;
+      if (!res.ok) {
+        ttwarn(`cobalt[${host}] HTTP ${res.status} ${ms}ms`);
+        continue;
+      }
+      const data = await res.json();
+      ttlog(`cobalt[${host}] ${ms}ms`, {
+        status: data.status, kind: data.kind, urlHost: tryHost(data.url),
+        text: data.text,
+      });
+      if (data.status !== 'stream' && data.status !== 'redirect' && data.status !== 'tunnel') continue;
+      if (!data.url) continue;
+      if (await tryLoadVideo(data.url)) {
+        addHistory(originalUrl);
+        setLoading(false);
+        setMode('canvas', `cobalt · ${host}`);
+        ttlog(`SUCCESS via cobalt[${host}]`);
+        startCanvas();
+        safePlay();
+        return;
+      }
+      ttwarn(`cobalt[${host}] stream rejected by <video>`);
+    } catch (e) {
+      ttwarn(`cobalt[${host}] threw`, { name: e.name, msg: e.message,
+        ms: Date.now() - t0 });
+    }
+  }
+
+  // Strategy 2: Piped JSON API (direct or via CORS proxy)
+  ttlog('strategy 2: piped API', { hosts: PIPED_HOSTS });
   for (const host of PIPED_HOSTS) {
     setMode('canvas', `piped → ${host}`);
     const data = await fetchJsonAny(`https://${host}/streams/${videoId}`, 5000);
@@ -736,8 +845,8 @@ async function loadYouTube(videoId, originalUrl) {
     ttwarn(`piped[${host}] stream rejected by <video>`, { quality: stream.quality });
   }
 
-  // Strategy 2: Invidious JSON API → formatStreams (combined audio+video)
-  ttlog('strategy 2: invidious /api/v1/videos', { hosts: INVIDIOUS_HOSTS });
+  // Strategy 3: Invidious JSON API → formatStreams (combined audio+video)
+  ttlog('strategy 3: invidious /api/v1/videos', { hosts: INVIDIOUS_HOSTS });
   for (const host of INVIDIOUS_HOSTS) {
     setMode('canvas', `inv-api → ${host}`);
     const data = await fetchJsonAny(`https://${host}/api/v1/videos/${videoId}?fields=title,formatStreams`, 5000);
@@ -770,7 +879,7 @@ async function loadYouTube(videoId, originalUrl) {
   }
 
   // Strategy 3: Invidious latest_version (server-side redirect)
-  ttlog('strategy 3: invidious latest_version', { hosts: INVIDIOUS_HOSTS });
+  ttlog('strategy 4: invidious latest_version', { hosts: INVIDIOUS_HOSTS });
   for (const host of INVIDIOUS_HOSTS) {
     for (const itag of [22, 18]) {
       setMode('canvas', `inv-redir → ${host} itag${itag}`);
@@ -797,10 +906,10 @@ async function loadYouTube(videoId, originalUrl) {
 
 function tryHost(url) { try { return new URL(url).hostname; } catch(e) { return '?'; } }
 
-function fetchWithTimeout(url, ms) {
+function fetchWithTimeout(url, ms, opts = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
-  return fetch(url, { signal: ctrl.signal, mode: 'cors' })
+  return fetch(url, { signal: ctrl.signal, mode: 'cors', ...opts })
     .finally(() => clearTimeout(t));
 }
 
