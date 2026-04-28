@@ -591,6 +591,7 @@ function handlePlay() {
 
   const ytId = extractVideoId(raw);
   const direct = isDirectVideo(raw);
+  ttlog('handlePlay', { raw, ytId, direct, method });
 
   if (ytId) {
     loadYouTube(ytId, raw);
@@ -621,67 +622,120 @@ const INVIDIOUS_HOSTS = [
   'invidious.materialio.us',
 ];
 
+// ─── Console logger (prefixed + JSON-serialised for copy-paste) ───
+const TT_T0 = Date.now();
+function ttfmt(args) {
+  return args.map(a => {
+    if (a == null || typeof a !== 'object') return String(a);
+    try { return JSON.stringify(a); } catch(e) { return String(a); }
+  }).join(' ');
+}
+function ttlog(...args) {
+  const t = ((Date.now() - TT_T0) / 1000).toFixed(2).padStart(6, ' ');
+  console.log(`[TT +${t}s] ${ttfmt(args)}`);
+}
+function ttwarn(...args) {
+  const t = ((Date.now() - TT_T0) / 1000).toFixed(2).padStart(6, ' ');
+  console.warn(`[TT +${t}s] ${ttfmt(args)}`);
+}
+// Surface uncaught errors and unhandled promise rejections too
+window.addEventListener('error', e => ttwarn('window.error', {
+  message: e.message, src: e.filename, line: e.lineno,
+}));
+window.addEventListener('unhandledrejection', e => ttwarn('unhandledrejection', {
+  reason: String(e.reason),
+}));
+
 async function loadYouTube(videoId, originalUrl) {
   showPlayer();
   setLoading(true);
   setMode('canvas', 'Resolving stream…');
+  ttlog('loadYouTube', { videoId, originalUrl, method,
+    ua: navigator.userAgent, online: navigator.onLine });
 
   // Direct mode: skip canvas pipeline — embed works when parked
   if (method === 'direct') {
+    ttlog('direct method → embed iframe');
     loadYouTubeEmbed(videoId, originalUrl);
     return;
   }
 
-  // Strategy 1: Piped API. Returns JSON with CORS-friendly googlevideo
-  // proxy URLs. Combined audio+video streams (videoOnly === false) work
-  // directly with a single <video> element — no MSE needed.
+  // Strategy 1: Piped API
+  ttlog('strategy 1: piped API', { hosts: PIPED_HOSTS });
   for (const host of PIPED_HOSTS) {
     setMode('canvas', `piped → ${host}`);
+    const t0 = Date.now();
     try {
       const res = await fetchWithTimeout(`https://${host}/streams/${videoId}`, 5000);
-      if (!res.ok) continue;
+      const ms = Date.now() - t0;
+      if (!res.ok) {
+        ttwarn(`piped[${host}] HTTP ${res.status} in ${ms}ms`);
+        continue;
+      }
       const data = await res.json();
-      const combined = (data.videoStreams || []).filter(s =>
+      const allStreams = data.videoStreams || [];
+      const combined = allStreams.filter(s =>
         s.videoOnly === false && s.mimeType && s.mimeType.includes('mp4')
       );
+      ttlog(`piped[${host}] ok ${ms}ms`, {
+        videoStreams: allStreams.length,
+        combinedMp4: combined.length,
+        qualities: combined.map(s => s.quality),
+        title: data.title,
+      });
       if (!combined.length) continue;
-      // Prefer 720p, fall back to anything mp4 + audio
       const stream =
         combined.find(s => s.quality === '720p') ||
         combined.find(s => s.quality === '360p') ||
         combined[0];
+      ttlog(`piped[${host}] picked stream`, {
+        quality: stream.quality, mime: stream.mimeType,
+        urlHost: tryHost(stream.url),
+      });
       const ok = await tryLoadVideo(stream.url);
       if (ok) {
         addHistory(originalUrl);
         setLoading(false);
         setMode('canvas', `piped · ${host} · ${stream.quality}`);
+        ttlog(`SUCCESS via piped[${host}] ${stream.quality}`);
         startCanvas();
         safePlay();
         return;
       }
-    } catch (e) { /* try next host */ }
+      ttwarn(`piped[${host}] stream rejected by <video>`, { quality: stream.quality });
+    } catch (e) {
+      ttwarn(`piped[${host}] threw`, { name: e.name, message: e.message,
+        ms: Date.now() - t0 });
+    }
   }
 
-  // Strategy 2: Invidious latest_version — server-side redirect to googlevideo
+  // Strategy 2: Invidious latest_version
+  ttlog('strategy 2: invidious latest_version', { hosts: INVIDIOUS_HOSTS });
   for (const host of INVIDIOUS_HOSTS) {
     for (const itag of [22, 18]) {
       setMode('canvas', `inv → ${host} itag${itag}`);
       const url = `https://${host}/latest_version?id=${videoId}&itag=${itag}&local=true`;
+      const t0 = Date.now();
       const ok = await tryLoadVideo(url);
+      const ms = Date.now() - t0;
       if (ok) {
         addHistory(originalUrl);
         setLoading(false);
         setMode('canvas', `invidious · ${host} · itag ${itag}`);
+        ttlog(`SUCCESS via invidious[${host}] itag${itag} in ${ms}ms`);
         startCanvas();
         safePlay();
         return;
       }
+      ttwarn(`invidious[${host}] itag${itag} failed in ${ms}ms`);
     }
   }
 
-  // Everything failed → embed (Drive Mode will block it, but at least it plays parked)
+  ttwarn('ALL canvas strategies exhausted → falling back to YT embed iframe');
   loadYouTubeEmbed(videoId, originalUrl);
 }
+
+function tryHost(url) { try { return new URL(url).hostname; } catch(e) { return '?'; } }
 
 function fetchWithTimeout(url, ms) {
   const ctrl = new AbortController();
@@ -693,24 +747,31 @@ function fetchWithTimeout(url, ms) {
 function tryLoadVideo(url) {
   return new Promise((resolve) => {
     let done = false;
-    const finish = (ok) => {
+    const t0 = Date.now();
+    const tag = (() => { try { return new URL(url).hostname; } catch(e) { return '?'; } })();
+    const finish = (ok, why) => {
       if (done) return;
       done = true;
       clearTimeout(timeout);
       video.removeEventListener('loadedmetadata', onMeta);
       video.removeEventListener('canplay', onOk);
       video.removeEventListener('error', onErr);
+      ttlog(`tryLoadVideo[${tag}] → ${ok ? 'OK' : 'FAIL'}`, {
+        reason: why, ms: Date.now() - t0,
+        videoW: video.videoWidth, videoH: video.videoHeight,
+        readyState: video.readyState, networkState: video.networkState,
+        errCode: video.error?.code,
+      });
       resolve(ok);
     };
-    // Require an actual video track — Invidious sometimes returns audio-only
     const onMeta = () => {
-      if (!video.videoWidth || !video.videoHeight) finish(false);
+      if (!video.videoWidth || !video.videoHeight) finish(false, 'no-video-track');
     };
     const onOk  = () => {
-      if (video.videoWidth && video.videoHeight) finish(true);
+      if (video.videoWidth && video.videoHeight) finish(true, 'canplay+hasVideo');
     };
-    const onErr = () => finish(false);
-    const timeout = setTimeout(() => finish(false), 4000);
+    const onErr = () => finish(false, 'video.error');
+    const timeout = setTimeout(() => finish(false, 'timeout4s'), 4000);
 
     video.addEventListener('loadedmetadata', onMeta);
     video.addEventListener('canplay', onOk);
@@ -747,6 +808,7 @@ function loadYouTubeEmbed(videoId, originalUrl) {
 
   document.getElementById('controls').style.display = 'none';
   setMode('embed', `YT iframe · id ${videoId}`);
+  ttwarn('YT embed iframe inserted (Drive Mode will block it)', { videoId });
   addHistory(originalUrl);
   setError('');
 }
@@ -755,7 +817,9 @@ function loadYouTubeEmbed(videoId, originalUrl) {
 function loadDirect(url) {
   showPlayer();
   setLoading(true);
+  ttlog('loadDirect', { url, method });
 
+  const t0 = Date.now();
   const onCanPlay = () => {
     video.removeEventListener('canplay', onCanPlay);
     video.removeEventListener('error', onErr);
@@ -763,6 +827,10 @@ function loadDirect(url) {
     const kind = method === 'canvas' ? 'canvas' : 'direct';
     let host = url; try { host = new URL(url).hostname; } catch(e) {}
     setMode(kind, host);
+    ttlog(`loadDirect canplay ${Date.now()-t0}ms`, {
+      videoW: video.videoWidth, videoH: video.videoHeight,
+      duration: video.duration, kind,
+    });
     if (method === 'canvas') startCanvas();
     safePlay();
   };
@@ -770,6 +838,10 @@ function loadDirect(url) {
     video.removeEventListener('canplay', onCanPlay);
     video.removeEventListener('error', onErr);
     setLoading(false);
+    ttwarn(`loadDirect error ${Date.now()-t0}ms`, {
+      errCode: video.error?.code, errMsg: video.error?.message,
+      networkState: video.networkState,
+    });
     setError('Could not load video. Check URL or CORS.');
     goHome();
   };
@@ -784,11 +856,19 @@ function loadDirect(url) {
 
 // Try to play; if autoplay policy blocks, retry muted.
 function safePlay() {
-  video.play().then(() => updatePlayState(true)).catch(() => {
+  video.play().then(() => {
+    ttlog('safePlay: playing (unmuted)');
+    updatePlayState(true);
+  }).catch(err1 => {
+    ttwarn('safePlay: unmuted play rejected', { name: err1.name, message: err1.message });
     if (!video.muted) {
       video.muted = true;
       muted = true;
-      video.play().then(() => updatePlayState(true)).catch(() => {
+      video.play().then(() => {
+        ttlog('safePlay: playing (muted fallback)');
+        updatePlayState(true);
+      }).catch(err2 => {
+        ttwarn('safePlay: muted play also rejected', { name: err2.name, message: err2.message });
         setError('Tap play to start');
       });
     } else {
