@@ -11,20 +11,20 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-–bg: #0a0a0c;
-–surface: #111116;
-–border: #222228;
-–accent: #e8ff47;
-–accent2: #ff4757;
-–text: #f0f0f0;
-–muted: #555560;
+--bg: #0a0a0c;
+--surface: #111116;
+--border: #222228;
+--accent: #e8ff47;
+--accent2: #ff4757;
+--text: #f0f0f0;
+--muted: #555560;
 }
 
 html, body {
 width: 100%; height: 100%;
-background: var(–bg);
-color: var(–text);
-font-family: ‘DM Mono’, monospace;
+background: var(--bg);
+color: var(--text);
+font-family: 'DM Mono', monospace;
 overflow: hidden;
 -webkit-tap-highlight-color: transparent;
 user-select: none;
@@ -39,7 +39,7 @@ user-select: none;
 align-items: center;
 justify-content: center;
 gap: 40px;
-background: var(–bg);
+background: var(--bg);
 }
 
 .home-bg {
@@ -51,20 +51,20 @@ pointer-events: none;
 }
 
 .logo {
-font-family: ‘Syne’, sans-serif;
+font-family: 'Syne', sans-serif;
 font-size: clamp(28px, 6vw, 52px);
 font-weight: 800;
 letter-spacing: -.02em;
-color: var(–text);
+color: var(--text);
 z-index: 1;
 }
-.logo span { color: var(–accent); }
+.logo span { color: var(--accent); }
 
 .tagline {
 font-size: 11px;
 letter-spacing: .2em;
 text-transform: uppercase;
-color: var(–muted);
+color: var(--muted);
 z-index: 1;
 margin-top: -28px;
 }
@@ -81,7 +81,7 @@ gap: 12px;
 font-size: 10px;
 letter-spacing: .18em;
 text-transform: uppercase;
-color: var(–muted);
+color: var(--muted);
 }
 
 .url-row {
@@ -92,26 +92,26 @@ align-items: stretch;
 
 #urlInput {
 flex: 1;
-background: var(–surface);
-border: 1px solid var(–border);
+background: var(--surface);
+border: 1px solid var(--border);
 border-radius: 10px;
 padding: 14px 18px;
-color: var(–text);
-font-family: ‘DM Mono’, monospace;
+color: var(--text);
+font-family: 'DM Mono', monospace;
 font-size: 13px;
 outline: none;
 transition: border-color .2s;
 }
-#urlInput:focus { border-color: var(–accent); }
-#urlInput::placeholder { color: var(–muted); }
+#urlInput:focus { border-color: var(--accent); }
+#urlInput::placeholder { color: var(--muted); }
 
 .btn-play {
-background: var(–accent);
+background: var(--accent);
 color: #0a0a0c;
 border: none;
 border-radius: 10px;
 padding: 0 22px;
-font-family: ‘Syne’, sans-serif;
+font-family: 'Syne', sans-serif;
 font-weight: 700;
 font-size: 13px;
 letter-spacing: .05em;
@@ -124,10 +124,10 @@ transition: transform .12s, background .15s;
 
 .hint {
 font-size: 11px;
-color: var(–muted);
+color: var(--muted);
 line-height: 1.6;
 }
-.hint b { color: var(–text); font-weight: 400; }
+.hint b { color: var(--text); font-weight: 400; }
 
 .history-wrap {
 width: min(560px, 90vw);
@@ -137,7 +137,7 @@ z-index: 1;
 font-size: 10px;
 letter-spacing: .18em;
 text-transform: uppercase;
-color: var(–muted);
+color: var(--muted);
 margin-bottom: 10px;
 }
 .history-list {
@@ -148,23 +148,23 @@ max-height: 120px;
 overflow-y: auto;
 }
 .history-item {
-background: var(–surface);
-border: 1px solid var(–border);
+background: var(--surface);
+border: 1px solid var(--border);
 border-radius: 8px;
 padding: 9px 14px;
 font-size: 12px;
-color: var(–text);
+color: var(--text);
 cursor: pointer;
 white-space: nowrap;
 overflow: hidden;
 text-overflow: ellipsis;
 transition: border-color .15s, background .15s;
 }
-.history-item:active { background: #1a1a22; border-color: var(–accent); }
+.history-item:active { background: #1a1a22; border-color: var(--accent); }
 
 #errorMsg {
 font-size: 12px;
-color: var(–accent2);
+color: var(--accent2);
 min-height: 16px;
 text-align: center;
 z-index: 1;
@@ -176,7 +176,7 @@ background: #000;
 position: relative;
 }
 
-/* Hidden real video — off-screen so Tesla doesn’t detect it as “visible video” */
+/* Hidden real video — off-screen so Tesla doesn't detect it as “visible video” */
 #hiddenVideo {
 position: fixed;
 left: -9999px;
@@ -226,7 +226,7 @@ cursor: pointer;
 }
 .progress-fill {
 height: 100%;
-background: var(–accent);
+background: var(--accent);
 border-radius: 2px;
 width: 0%;
 transition: width .5s linear;
@@ -237,7 +237,7 @@ position: absolute;
 top: 50%;
 transform: translate(-50%, -50%);
 width: 14px; height: 14px;
-background: var(–accent);
+background: var(--accent);
 border-radius: 50%;
 left: 0%;
 pointer-events: none;
@@ -264,7 +264,7 @@ flex-shrink: 0;
 .ctrl-btn:active { background: rgba(255,255,255,.25); transform: scale(.92); }
 .ctrl-btn.primary {
 width: 58px; height: 58px;
-background: var(–accent);
+background: var(--accent);
 color: #000;
 }
 .ctrl-btn.primary:active { background: #d4eb30; }
@@ -287,7 +287,7 @@ border: 1px solid rgba(255,255,255,.15);
 border-radius: 8px;
 padding: 8px 16px;
 color: #fff;
-font-family: ‘DM Mono’, monospace;
+font-family: 'DM Mono', monospace;
 font-size: 12px;
 cursor: pointer;
 letter-spacing: .1em;
@@ -314,7 +314,7 @@ transition: opacity .3s;
 .spinner {
 width: 36px; height: 36px;
 border: 2px solid rgba(255,255,255,.1);
-border-top-color: var(–accent);
+border-top-color: var(--accent);
 border-radius: 50%;
 animation: spin .8s linear infinite;
 }
@@ -322,7 +322,7 @@ animation: spin .8s linear infinite;
 
 .loading-text {
 font-size: 12px;
-color: var(–muted);
+color: var(--muted);
 letter-spacing: .15em;
 text-transform: uppercase;
 }
@@ -346,21 +346,21 @@ gap: 8px;
 }
 .method-btn {
 flex: 1;
-background: var(–surface);
-border: 1px solid var(–border);
+background: var(--surface);
+border: 1px solid var(--border);
 border-radius: 8px;
 padding: 10px 8px;
-font-family: ‘DM Mono’, monospace;
+font-family: 'DM Mono', monospace;
 font-size: 11px;
-color: var(–muted);
+color: var(--muted);
 cursor: pointer;
 text-align: center;
 transition: border-color .15s, color .15s;
 -webkit-tap-highlight-color: transparent;
 }
 .method-btn.active {
-border-color: var(–accent);
-color: var(–accent);
+border-color: var(--accent);
+color: var(--accent);
 }
 </style>
 
@@ -409,8 +409,8 @@ color: var(–accent);
 
   <!-- Real video element — off-screen, Tesla can't see it -->
 
-<video id="hiddenVideo" playsinline webkit-playsinline crossorigin="anonymous"
-preload="auto" muted></video>
+<video id="hiddenVideo" playsinline webkit-playsinline
+preload="auto"></video>
 
   <!-- Canvas — what Tesla actually renders -->
 
@@ -428,7 +428,6 @@ preload="auto" muted></video>
   <div id="controls">
     <button class="back-btn" onclick="goHome()">← Back</button>
 
-```
 <div class="ctrl-bar">
   <div class="progress-wrap" id="progressWrap" onclick="seekVideo(event)">
     <div class="progress-fill" id="progressFill"></div>
@@ -475,7 +474,6 @@ preload="auto" muted></video>
     </button>
   </div>
 </div>
-```
 
   </div>
 </div>
@@ -545,53 +543,61 @@ function handlePlay() {
   }
 }
 
-// ─── YouTube via invidious/piped proxy (no CORS issues) ───
+// ─── YouTube via invidious proxy (canvas mode) or embed (direct mode) ───
 async function loadYouTube(videoId, originalUrl) {
   showPlayer();
   setLoading(true);
 
-  // Invidious instances that allow CORS and provide direct streams
+  // Direct mode: skip Invidious — YouTube embed works fine when parked
+  if (method === 'direct') {
+    loadYouTubeEmbed(videoId, originalUrl);
+    return;
+  }
+
+  // Canvas mode: try Invidious instances for direct MP4 stream
   const instances = [
     `https://inv.nadeko.net/latest_version?id=${videoId}&itag=22&local=true`,
     `https://invidious.privacyredirect.com/latest_version?id=${videoId}&itag=22&local=true`,
     `https://invidious.nerdvpn.de/latest_version?id=${videoId}&itag=22&local=true`,
     `https://y.com.sb/latest_version?id=${videoId}&itag=22&local=true`,
   ];
-
-  // itag 22 = 720p MP4, itag 18 = 360p MP4 (fallback)
   const fallbackInstances = instances.map(u => u.replace('itag=22', 'itag=18'));
 
   let loaded = false;
-
   for (const url of [...instances, ...fallbackInstances]) {
-    try {
-      const ok = await tryLoadVideo(url);
-      if (ok) { loaded = true; addHistory(originalUrl); break; }
-    } catch(e) { /* try next */ }
+    const ok = await tryLoadVideo(url);
+    if (ok) {
+      loaded = true;
+      addHistory(originalUrl);
+      setLoading(false);
+      startCanvas();
+      video.play().then(() => updatePlayState(true)).catch(() => {});
+      break;
+    }
   }
 
   if (!loaded) {
-    // Last resort: YouTube embed in iframe approach with postMessage
     loadYouTubeEmbed(videoId, originalUrl);
   }
 }
 
-async function tryLoadVideo(url) {
+function tryLoadVideo(url) {
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      video.src = '';
-      resolve(false);
-    }, 8000);
-
-    video.oncanplay = () => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
       clearTimeout(timeout);
-      resolve(true);
+      video.removeEventListener('canplay', onOk);
+      video.removeEventListener('error', onErr);
+      resolve(ok);
     };
-    video.onerror = () => {
-      clearTimeout(timeout);
-      resolve(false);
-    };
+    const onOk  = () => finish(true);
+    const onErr = () => finish(false);
+    const timeout = setTimeout(() => finish(false), 4000);
 
+    video.addEventListener('canplay', onOk);
+    video.addEventListener('error', onErr);
     video.src = url;
     video.load();
   });
@@ -628,19 +634,25 @@ function loadDirect(url) {
   showPlayer();
   setLoading(true);
 
-  video.src = url;
-  video.load();
-
-  video.oncanplay = () => {
+  const onCanPlay = () => {
+    video.removeEventListener('canplay', onCanPlay);
+    video.removeEventListener('error', onErr);
     setLoading(false);
-    startCanvas();
+    if (method === 'canvas') startCanvas();
     video.play().then(() => updatePlayState(true)).catch(() => {});
   };
-  video.onerror = () => {
+  const onErr = () => {
+    video.removeEventListener('canplay', onCanPlay);
+    video.removeEventListener('error', onErr);
     setLoading(false);
-    setError('Could not load video. Check URL.');
+    setError('Could not load video. Check URL or CORS.');
     goHome();
   };
+
+  video.addEventListener('canplay', onCanPlay);
+  video.addEventListener('error', onErr);
+  video.src = url;
+  video.load();
 
   addHistory(url);
 }
@@ -758,13 +770,6 @@ setTimeout(() => document.getElementById('controls').classList.add('fade'), 3500
 video.addEventListener('play',  () => updatePlayState(true));
 video.addEventListener('pause', () => updatePlayState(false));
 video.addEventListener('ended', () => updatePlayState(false));
-video.addEventListener('canplay', () => {
-  setLoading(false);
-  if (method === 'canvas') {
-    startCanvas();
-    video.play().then(() => updatePlayState(true)).catch(() => {});
-  }
-});
 
 // ═══════════════════════════════════════
 // SCREEN NAV
