@@ -295,6 +295,46 @@ text-transform: uppercase;
 }
 .back-btn:active { background: rgba(0,0,0,.8); }
 
+/* Debug mode indicator — always visible above everything */
+#modeIndicator {
+position: absolute;
+top: 20px;
+right: 20px;
+display: flex;
+flex-direction: column;
+align-items: flex-end;
+gap: 4px;
+z-index: 30;
+pointer-events: none;
+}
+.mode-badge {
+font-family: 'DM Mono', monospace;
+font-size: 11px;
+font-weight: 500;
+letter-spacing: .15em;
+text-transform: uppercase;
+padding: 6px 10px;
+border-radius: 6px;
+border: 1px solid;
+background: rgba(0,0,0,.65);
+}
+.mode-badge.canvas { color: #e8ff47; border-color: #e8ff47; }
+.mode-badge.embed  { color: #ff4757; border-color: #ff4757; }
+.mode-badge.direct { color: #47b8ff; border-color: #47b8ff; }
+.mode-detail {
+font-family: 'DM Mono', monospace;
+font-size: 10px;
+color: rgba(255,255,255,.6);
+background: rgba(0,0,0,.55);
+padding: 4px 8px;
+border-radius: 4px;
+max-width: 320px;
+text-align: right;
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+}
+
 /* Loading state */
 #loadingOverlay {
 position: absolute;
@@ -415,6 +455,9 @@ preload="auto"></video>
 
 <canvas id="cvs"></canvas>
 
+  <!-- Debug mode indicator -->
+  <div id="modeIndicator"></div>
+
   <!-- Loading -->
 
   <div id="loadingOverlay">
@@ -500,6 +543,23 @@ function setMethod(m) {
 }
 
 // ═══════════════════════════════════════
+// MODE INDICATOR (debug overlay)
+// ═══════════════════════════════════════
+// kind: 'canvas' | 'embed' | 'direct' | null  detail: short string or ''
+function setMode(kind, detail) {
+  const ind = document.getElementById('modeIndicator');
+  if (!kind) { ind.innerHTML = ''; return; }
+  const label = {
+    canvas: 'CANVAS · drive bypass',
+    embed:  'YT EMBED · drive blocks',
+    direct: 'DIRECT · parked only',
+  }[kind] || kind.toUpperCase();
+  ind.innerHTML =
+    `<div class="mode-badge ${kind}">${label}</div>` +
+    (detail ? `<div class="mode-detail">${detail}</div>` : '');
+}
+
+// ═══════════════════════════════════════
 // URL PARSING
 // ═══════════════════════════════════════
 function extractVideoId(url) {
@@ -569,6 +629,9 @@ async function loadYouTube(videoId, originalUrl) {
       loaded = true;
       addHistory(originalUrl);
       setLoading(false);
+      const host = new URL(url).hostname;
+      const itag = url.match(/itag=(\d+)/)?.[1] || '?';
+      setMode('canvas', `YT · ${host} · itag ${itag}`);
       startCanvas();
       safePlay();
       break;
@@ -636,6 +699,7 @@ function loadYouTubeEmbed(videoId, originalUrl) {
   playerEl.appendChild(iframe);
 
   document.getElementById('controls').style.display = 'none';
+  setMode('embed', `YT iframe · id ${videoId}`);
   addHistory(originalUrl);
   setError('');
 }
@@ -649,6 +713,9 @@ function loadDirect(url) {
     video.removeEventListener('canplay', onCanPlay);
     video.removeEventListener('error', onErr);
     setLoading(false);
+    const kind = method === 'canvas' ? 'canvas' : 'direct';
+    let host = url; try { host = new URL(url).hostname; } catch(e) {}
+    setMode(kind, host);
     if (method === 'canvas') startCanvas();
     safePlay();
   };
@@ -814,6 +881,7 @@ function goHome() {
   const f = document.getElementById('ytEmbedFrame');
   if (f) f.remove();
   document.getElementById('controls').style.display = '';
+  setMode(null);
 }
 
 // ═══════════════════════════════════════
