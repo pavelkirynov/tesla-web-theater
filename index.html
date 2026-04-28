@@ -646,12 +646,52 @@ window.addEventListener('unhandledrejection', e => ttwarn('unhandledrejection', 
   reason: String(e.reason),
 }));
 
+// Public CORS proxies — used to wrap JSON API calls to Piped/Invidious
+// when their CORS headers reject our origin.
+const CORS_PROXIES = [
+  u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+];
+
+async function fetchJsonAny(targetUrl, ms = 5000) {
+  // 1) direct
+  try {
+    const t0 = Date.now();
+    const res = await fetchWithTimeout(targetUrl, ms);
+    const dt = Date.now() - t0;
+    if (res.ok) {
+      ttlog(`fetchJson[direct] ok ${dt}ms`, { url: targetUrl });
+      return await res.json();
+    }
+    ttwarn(`fetchJson[direct] HTTP ${res.status} ${dt}ms`, { url: targetUrl });
+  } catch (e) {
+    ttwarn(`fetchJson[direct] threw`, { url: targetUrl, name: e.name, msg: e.message });
+  }
+  // 2) via cors proxies
+  for (let i = 0; i < CORS_PROXIES.length; i++) {
+    const proxied = CORS_PROXIES[i](targetUrl);
+    try {
+      const t0 = Date.now();
+      const res = await fetchWithTimeout(proxied, ms);
+      const dt = Date.now() - t0;
+      if (res.ok) {
+        ttlog(`fetchJson[proxy${i}] ok ${dt}ms`, { url: targetUrl, via: tryHost(proxied) });
+        return await res.json();
+      }
+      ttwarn(`fetchJson[proxy${i}] HTTP ${res.status} ${dt}ms`, { url: targetUrl });
+    } catch (e) {
+      ttwarn(`fetchJson[proxy${i}] threw`, { url: targetUrl, name: e.name, msg: e.message });
+    }
+  }
+  return null;
+}
+
 async function loadYouTube(videoId, originalUrl) {
   showPlayer();
   setLoading(true);
   setMode('canvas', 'Resolving stream…');
   ttlog('loadYouTube', { videoId, originalUrl, method,
-    ua: navigator.userAgent, online: navigator.onLine });
+    origin: location.origin, ua: navigator.userAgent, online: navigator.onLine });
 
   // Direct mode: skip canvas pipeline — embed works when parked
   if (method === 'direct') {
@@ -660,60 +700,80 @@ async function loadYouTube(videoId, originalUrl) {
     return;
   }
 
-  // Strategy 1: Piped API
+  // Strategy 1: Piped JSON API (direct or via CORS proxy)
   ttlog('strategy 1: piped API', { hosts: PIPED_HOSTS });
   for (const host of PIPED_HOSTS) {
     setMode('canvas', `piped → ${host}`);
-    const t0 = Date.now();
-    try {
-      const res = await fetchWithTimeout(`https://${host}/streams/${videoId}`, 5000);
-      const ms = Date.now() - t0;
-      if (!res.ok) {
-        ttwarn(`piped[${host}] HTTP ${res.status} in ${ms}ms`);
-        continue;
-      }
-      const data = await res.json();
-      const allStreams = data.videoStreams || [];
-      const combined = allStreams.filter(s =>
-        s.videoOnly === false && s.mimeType && s.mimeType.includes('mp4')
-      );
-      ttlog(`piped[${host}] ok ${ms}ms`, {
-        videoStreams: allStreams.length,
-        combinedMp4: combined.length,
-        qualities: combined.map(s => s.quality),
-        title: data.title,
-      });
-      if (!combined.length) continue;
-      const stream =
-        combined.find(s => s.quality === '720p') ||
-        combined.find(s => s.quality === '360p') ||
-        combined[0];
-      ttlog(`piped[${host}] picked stream`, {
-        quality: stream.quality, mime: stream.mimeType,
-        urlHost: tryHost(stream.url),
-      });
-      const ok = await tryLoadVideo(stream.url);
-      if (ok) {
-        addHistory(originalUrl);
-        setLoading(false);
-        setMode('canvas', `piped · ${host} · ${stream.quality}`);
-        ttlog(`SUCCESS via piped[${host}] ${stream.quality}`);
-        startCanvas();
-        safePlay();
-        return;
-      }
-      ttwarn(`piped[${host}] stream rejected by <video>`, { quality: stream.quality });
-    } catch (e) {
-      ttwarn(`piped[${host}] threw`, { name: e.name, message: e.message,
-        ms: Date.now() - t0 });
+    const data = await fetchJsonAny(`https://${host}/streams/${videoId}`, 5000);
+    if (!data) continue;
+    const allStreams = data.videoStreams || [];
+    const combined = allStreams.filter(s =>
+      s.videoOnly === false && s.mimeType && s.mimeType.includes('mp4')
+    );
+    ttlog(`piped[${host}] parsed`, {
+      videoStreams: allStreams.length,
+      combinedMp4: combined.length,
+      qualities: combined.map(s => s.quality),
+      title: data.title,
+    });
+    if (!combined.length) continue;
+    const stream =
+      combined.find(s => s.quality === '720p') ||
+      combined.find(s => s.quality === '360p') ||
+      combined[0];
+    ttlog(`piped[${host}] picked stream`, {
+      quality: stream.quality, mime: stream.mimeType, urlHost: tryHost(stream.url),
+    });
+    if (await tryLoadVideo(stream.url)) {
+      addHistory(originalUrl);
+      setLoading(false);
+      setMode('canvas', `piped · ${host} · ${stream.quality}`);
+      ttlog(`SUCCESS via piped[${host}] ${stream.quality}`);
+      startCanvas();
+      safePlay();
+      return;
     }
+    ttwarn(`piped[${host}] stream rejected by <video>`, { quality: stream.quality });
   }
 
-  // Strategy 2: Invidious latest_version
-  ttlog('strategy 2: invidious latest_version', { hosts: INVIDIOUS_HOSTS });
+  // Strategy 2: Invidious JSON API → formatStreams (combined audio+video)
+  ttlog('strategy 2: invidious /api/v1/videos', { hosts: INVIDIOUS_HOSTS });
+  for (const host of INVIDIOUS_HOSTS) {
+    setMode('canvas', `inv-api → ${host}`);
+    const data = await fetchJsonAny(`https://${host}/api/v1/videos/${videoId}?fields=title,formatStreams`, 5000);
+    if (!data) continue;
+    const fs = (data.formatStreams || []).filter(s =>
+      s.container === 'mp4' || (s.type && s.type.includes('mp4'))
+    );
+    ttlog(`inv-api[${host}] parsed`, {
+      formatStreams: (data.formatStreams || []).length,
+      mp4: fs.length, qualities: fs.map(s => s.qualityLabel || s.quality),
+      title: data.title,
+    });
+    if (!fs.length) continue;
+    const stream = fs.find(s => /720p?/.test(s.qualityLabel || ''))
+                || fs.find(s => /360p?/.test(s.qualityLabel || ''))
+                || fs[0];
+    ttlog(`inv-api[${host}] picked`, {
+      q: stream.qualityLabel || stream.quality, urlHost: tryHost(stream.url),
+    });
+    if (await tryLoadVideo(stream.url)) {
+      addHistory(originalUrl);
+      setLoading(false);
+      setMode('canvas', `inv-api · ${host} · ${stream.qualityLabel || stream.quality}`);
+      ttlog(`SUCCESS via inv-api[${host}]`);
+      startCanvas();
+      safePlay();
+      return;
+    }
+    ttwarn(`inv-api[${host}] stream rejected by <video>`);
+  }
+
+  // Strategy 3: Invidious latest_version (server-side redirect)
+  ttlog('strategy 3: invidious latest_version', { hosts: INVIDIOUS_HOSTS });
   for (const host of INVIDIOUS_HOSTS) {
     for (const itag of [22, 18]) {
-      setMode('canvas', `inv → ${host} itag${itag}`);
+      setMode('canvas', `inv-redir → ${host} itag${itag}`);
       const url = `https://${host}/latest_version?id=${videoId}&itag=${itag}&local=true`;
       const t0 = Date.now();
       const ok = await tryLoadVideo(url);
