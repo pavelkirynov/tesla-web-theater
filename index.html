@@ -571,7 +571,7 @@ async function loadYouTube(videoId, originalUrl) {
       addHistory(originalUrl);
       setLoading(false);
       startCanvas();
-      video.play().then(() => updatePlayState(true)).catch(() => {});
+      safePlay();
       break;
     }
   }
@@ -588,14 +588,22 @@ function tryLoadVideo(url) {
       if (done) return;
       done = true;
       clearTimeout(timeout);
+      video.removeEventListener('loadedmetadata', onMeta);
       video.removeEventListener('canplay', onOk);
       video.removeEventListener('error', onErr);
       resolve(ok);
     };
-    const onOk  = () => finish(true);
+    // Require an actual video track — Invidious sometimes returns audio-only
+    const onMeta = () => {
+      if (!video.videoWidth || !video.videoHeight) finish(false);
+    };
+    const onOk  = () => {
+      if (video.videoWidth && video.videoHeight) finish(true);
+    };
     const onErr = () => finish(false);
     const timeout = setTimeout(() => finish(false), 4000);
 
+    video.addEventListener('loadedmetadata', onMeta);
     video.addEventListener('canplay', onOk);
     video.addEventListener('error', onErr);
     video.src = url;
@@ -603,12 +611,16 @@ function tryLoadVideo(url) {
   });
 }
 
-// ─── YouTube embed fallback (audio only via Web Audio, canvas shows thumbnail) ───
+// ─── YouTube embed fallback ───
 function loadYouTubeEmbed(videoId, originalUrl) {
-  setLoading(false);
-  setError('Direct stream unavailable. Loading YouTube embed…');
+  // Stop any leftover audio from failed Invidious attempts
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
 
-  // Replace canvas player with YouTube iframe (still works as fallback)
+  setLoading(false);
+
   const playerEl = document.getElementById('player');
   const existingFrame = document.getElementById('ytEmbedFrame');
   if (existingFrame) existingFrame.remove();
@@ -620,7 +632,7 @@ function loadYouTubeEmbed(videoId, originalUrl) {
   iframe.allowFullscreen = true;
   iframe.style.cssText = `
     position:absolute; inset:0; width:100%; height:100%;
-    border:none; z-index:5; background:#000;
+    border:none; z-index:20; background:#000;
   `;
   playerEl.appendChild(iframe);
 
@@ -639,7 +651,7 @@ function loadDirect(url) {
     video.removeEventListener('error', onErr);
     setLoading(false);
     if (method === 'canvas') startCanvas();
-    video.play().then(() => updatePlayState(true)).catch(() => {});
+    safePlay();
   };
   const onErr = () => {
     video.removeEventListener('canplay', onCanPlay);
@@ -657,6 +669,21 @@ function loadDirect(url) {
   addHistory(url);
 }
 
+// Try to play; if autoplay policy blocks, retry muted.
+function safePlay() {
+  video.play().then(() => updatePlayState(true)).catch(() => {
+    if (!video.muted) {
+      video.muted = true;
+      muted = true;
+      video.play().then(() => updatePlayState(true)).catch(() => {
+        setError('Tap play to start');
+      });
+    } else {
+      setError('Tap play to start');
+    }
+  });
+}
+
 // ═══════════════════════════════════════
 // CANVAS RENDER LOOP
 // ═══════════════════════════════════════
@@ -671,11 +698,9 @@ function startCanvas() {
   window.addEventListener('resize', resize);
 
   function draw() {
-    if (!video.paused && !video.ended && video.readyState >= 2) {
-      const vw = video.videoWidth, vh = video.videoHeight;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (vw && vh && video.readyState >= 2) {
       const cw = cvs.width, ch = cvs.height;
-
-      // Letterbox fit
       const scale = Math.min(cw / vw, ch / vh);
       const dw = vw * scale, dh = vh * scale;
       const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
@@ -684,8 +709,7 @@ function startCanvas() {
       ctx.fillRect(0, 0, cw, ch);
       ctx.drawImage(video, dx, dy, dw, dh);
 
-      // Update progress
-      updateProgress();
+      if (!video.paused && !video.ended) updateProgress();
     }
     rafId = requestAnimationFrame(draw);
   }
@@ -763,9 +787,6 @@ function showControls() {
 document.getElementById('cvs').addEventListener('click', showControls);
 document.getElementById('cvs').addEventListener('touchstart', showControls, { passive: true });
 
-// Auto-hide on start
-setTimeout(() => document.getElementById('controls').classList.add('fade'), 3500);
-
 // Video events
 video.addEventListener('play',  () => updatePlayState(true));
 video.addEventListener('pause', () => updatePlayState(false));
@@ -777,7 +798,9 @@ video.addEventListener('ended', () => updatePlayState(false));
 function showPlayer() {
   document.getElementById('home').classList.add('hidden');
   document.getElementById('player').classList.remove('hidden');
+  document.getElementById('controls').style.display = '';
   setError('');
+  showControls();
 }
 
 function goHome() {
