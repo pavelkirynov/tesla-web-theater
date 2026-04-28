@@ -602,45 +602,92 @@ function handlePlay() {
   }
 }
 
-// ─── YouTube via invidious proxy (canvas mode) or embed (direct mode) ───
+// ─── YouTube via Piped/Invidious (canvas mode) or embed (direct mode) ───
+const PIPED_HOSTS = [
+  'pipedapi.kavin.rocks',
+  'pipedapi.adminforge.de',
+  'api.piped.privacydev.net',
+  'api.piped.yt',
+  'api.piped.projectsegfau.lt',
+  'pipedapi-libre.kavin.rocks',
+];
+const INVIDIOUS_HOSTS = [
+  'inv.nadeko.net',
+  'invidious.privacyredirect.com',
+  'invidious.nerdvpn.de',
+  'y.com.sb',
+  'yewtu.be',
+  'invidious.f5.si',
+  'invidious.materialio.us',
+];
+
 async function loadYouTube(videoId, originalUrl) {
   showPlayer();
   setLoading(true);
+  setMode('canvas', 'Resolving stream…');
 
-  // Direct mode: skip Invidious — YouTube embed works fine when parked
+  // Direct mode: skip canvas pipeline — embed works when parked
   if (method === 'direct') {
     loadYouTubeEmbed(videoId, originalUrl);
     return;
   }
 
-  // Canvas mode: try Invidious instances for direct MP4 stream
-  const instances = [
-    `https://inv.nadeko.net/latest_version?id=${videoId}&itag=22&local=true`,
-    `https://invidious.privacyredirect.com/latest_version?id=${videoId}&itag=22&local=true`,
-    `https://invidious.nerdvpn.de/latest_version?id=${videoId}&itag=22&local=true`,
-    `https://y.com.sb/latest_version?id=${videoId}&itag=22&local=true`,
-  ];
-  const fallbackInstances = instances.map(u => u.replace('itag=22', 'itag=18'));
+  // Strategy 1: Piped API. Returns JSON with CORS-friendly googlevideo
+  // proxy URLs. Combined audio+video streams (videoOnly === false) work
+  // directly with a single <video> element — no MSE needed.
+  for (const host of PIPED_HOSTS) {
+    setMode('canvas', `piped → ${host}`);
+    try {
+      const res = await fetchWithTimeout(`https://${host}/streams/${videoId}`, 5000);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const combined = (data.videoStreams || []).filter(s =>
+        s.videoOnly === false && s.mimeType && s.mimeType.includes('mp4')
+      );
+      if (!combined.length) continue;
+      // Prefer 720p, fall back to anything mp4 + audio
+      const stream =
+        combined.find(s => s.quality === '720p') ||
+        combined.find(s => s.quality === '360p') ||
+        combined[0];
+      const ok = await tryLoadVideo(stream.url);
+      if (ok) {
+        addHistory(originalUrl);
+        setLoading(false);
+        setMode('canvas', `piped · ${host} · ${stream.quality}`);
+        startCanvas();
+        safePlay();
+        return;
+      }
+    } catch (e) { /* try next host */ }
+  }
 
-  let loaded = false;
-  for (const url of [...instances, ...fallbackInstances]) {
-    const ok = await tryLoadVideo(url);
-    if (ok) {
-      loaded = true;
-      addHistory(originalUrl);
-      setLoading(false);
-      const host = new URL(url).hostname;
-      const itag = url.match(/itag=(\d+)/)?.[1] || '?';
-      setMode('canvas', `YT · ${host} · itag ${itag}`);
-      startCanvas();
-      safePlay();
-      break;
+  // Strategy 2: Invidious latest_version — server-side redirect to googlevideo
+  for (const host of INVIDIOUS_HOSTS) {
+    for (const itag of [22, 18]) {
+      setMode('canvas', `inv → ${host} itag${itag}`);
+      const url = `https://${host}/latest_version?id=${videoId}&itag=${itag}&local=true`;
+      const ok = await tryLoadVideo(url);
+      if (ok) {
+        addHistory(originalUrl);
+        setLoading(false);
+        setMode('canvas', `invidious · ${host} · itag ${itag}`);
+        startCanvas();
+        safePlay();
+        return;
+      }
     }
   }
 
-  if (!loaded) {
-    loadYouTubeEmbed(videoId, originalUrl);
-  }
+  // Everything failed → embed (Drive Mode will block it, but at least it plays parked)
+  loadYouTubeEmbed(videoId, originalUrl);
+}
+
+function fetchWithTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { signal: ctrl.signal, mode: 'cors' })
+    .finally(() => clearTimeout(t));
 }
 
 function tryLoadVideo(url) {
