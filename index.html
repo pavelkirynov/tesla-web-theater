@@ -609,7 +609,7 @@ function handlePlay() {
 // mostly dead in 2026. Deploy worker.js (in this repo) on Cloudflare Workers
 // — it's ~50 lines, free tier, instant — and paste the URL below.
 // Expected to accept ?id=VIDEOID and return {kind:'mp4'|'hls', url:'...'}.
-const CUSTOM_BACKEND = null; // e.g. 'https://yt-proxy.youraccount.workers.dev/'
+const CUSTOM_BACKEND = 'https://tesla-worker.pavlo-kirianov.workers.dev/'; // e.g. 'https://yt-proxy.youraccount.workers.dev/'
 
 // Community Cobalt instances (POST /api/json). They actually mux streams
 // through a real yt-dlp pipeline server-side, so they hold up much better
